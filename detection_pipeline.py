@@ -721,7 +721,7 @@ class ModelPipeline:
         return metrics
 
     def run_pipeline(self, models_to_run: List[str] = None,
-                     feature_selection: bool = True) -> Dict[str, Dict[str, Union[float, str]]]:
+                     selected_features: List[int] = None) -> Dict[str, Dict[str, Union[float, str]]]:
         """
         Run the complete pipeline with optional model selection
 
@@ -736,10 +736,7 @@ class ModelPipeline:
             models_to_run = list(self.models.keys())
 
         # Perform feature selection if requested
-        if feature_selection:
-            print("Starting Genetic Algorithm for feature selection...")
-            self.genetic_feature_selection()
-        else:
+        if selected_features is None:
             self.selected_features = list(range(self.X.shape[1]))
 
         # Prepare data with selected features
