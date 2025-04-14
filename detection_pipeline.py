@@ -10,9 +10,9 @@ from sklearn.metrics import (
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, SimpleRNN, Dropout
+from tensorflow.keras.layers import Dense, Dropout, Input
 from tensorflow.keras.optimizers import Adam
 from scikeras.wrappers import KerasClassifier
 import matplotlib.pyplot as plt
@@ -44,14 +44,13 @@ class ModelPipeline:
         models (List[Dict]): list of dictionaries describing models
     """
 
-    def __init__(self, data_path: str, sample_frac: float = 1.0):
+    def __init__(self, data_path: str, selected_features=None, sample_frac: float = 1.0):
         """Initialize the pipeline with data loading"""
         self.data_path = data_path
         self.sample_frac = sample_frac
-        self.X, self.y = self._load_data()
-        self.selected_features = None
+        self.selected_features = selected_features
+        self._load_data()
         self.scaler = None
-        self.X_train, self.X_test, self.y_train, self.y_test = None, None, None, None
         self.models = {
             'RandomForest': {
                 'tune_func': self.tune_random_forest,
@@ -72,35 +71,56 @@ class ModelPipeline:
                 'tune_func': self.tune_dense_nn,
                 'train_func': self.train_dense_nn,
                 'params': None
-            },
-            'RNN': {
-                'tune_func': self.tune_rnn,
-                'train_func': self.train_rnn,
-                'params': None
             }
         }
 
-    def _load_data(self) -> Tuple[pd.DataFrame, pd.Series]:
+    def _random_undersample(self, X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Series]:
+        """Undersample dataset for binary labels"""
+        a_label, b_label = y.unique()
+        a_label_cnt, b_label_cnt = y.value_counts()
+        minority_label = a_label if (a_label_cnt < b_label_cnt) else b_label
+        majority_label = b_label if (a_label_cnt < b_label_cnt) else a_label
+        minority_cnt = a_label_cnt if (a_label_cnt < b_label_cnt) else b_label_cnt
+
+        # Select all elements with minority label
+        minority_y = y[y == minority_label]
+        new_X = X.loc[minority_y.index]
+        new_y = minority_y
+
+        # Sample elements with majority label
+        majority_y = y[y == majority_label]
+        sampled_majority = majority_y.sample(n=minority_cnt, random_state=42)
+        new_X = pd.concat([new_X, X.loc[sampled_majority.index]])
+        new_y = pd.concat([new_y, sampled_majority])
+
+        return new_X, new_y
+
+    def _load_data(self) -> None:
         """Load and prepare data"""
         X = pd.read_parquet(self.data_path)
         y = X['remainder__isFraud']
         X = X.drop(columns=['remainder__isFraud'])
 
-        if self.sample_frac < 1.0:
-            X = X.sample(frac=self.sample_frac, random_state=42)
-            y = y.loc[X.index]
-
-        return X, y
-
-    def _prepare_data(self, selected_features: Optional[List[int]] = None) -> None:
         """Prepare train/test split and optionally select features"""
-        if selected_features is not None:
-            self.X = self.X.iloc[:, selected_features]
+        if self.selected_features is not None:
+            X = X.iloc[:, self.selected_features]
 
-        # Stratified data split
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            self.X, self.y, test_size=0.3, stratify=self.y, random_state=42
+        self.X = X
+        self.y = y
+
+        # Data split
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
         )
+
+        # Undersampling for equal proportion of labels
+        self.X_train, self.y_train = self._random_undersample(X_train, y_train)
+        self.X_test, self.y_test = X_test, y_test
+
+        # Take a sample using sample_frac
+        if self.sample_frac < 1.0:
+            self.X_train = self.X_train.sample(frac=self.sample_frac, random_state=42)
+            self.y_train = self.y_train.loc[self.X_train.index]
 
     def evaluate_features(self, individual, X_train, y_train, X_val, y_val) -> Tuple[float]:
         """Evaluate fitness of feature subset using RandomForest"""
@@ -176,9 +196,8 @@ class ModelPipeline:
         return selected_features
 
     # ==================== Random Forest ====================
-    def tune_random_forest(self, n_particles: int = 20, iters: int = 30) -> Dict[str, float]:
+    def tune_random_forest(self, n_particles: int = 5, iters: int = 10) -> Dict[str, float]:
         """PSO optimization for Random Forest hyperparameters"""
-        self._prepare_data(self.selected_features)
 
         bounds = (
             np.array([50, 2, 2, 1]),    # min values
@@ -215,14 +234,14 @@ class ModelPipeline:
                     score = roc_auc_score(y_val_cv, y_proba)
                     cv_scores.append(score)
 
-                scores.append(-np.mean(cv_scores))  # Negative for minimization
+                scores.append(-np.mean(cv_scores))
 
             return np.array(scores)
 
         optimizer = GlobalBestPSO(
             n_particles=n_particles,
             dimensions=len(bounds[0]),
-            options={'c1': 0.5, 'c2': 0.3, 'w': 0.9},
+            options={'c1': 0.5, 'c2': 0.3, 'w': 0.9, 'early_stop': True, 'patience': 3},
             bounds=bounds
         )
 
@@ -262,9 +281,8 @@ class ModelPipeline:
         return self._evaluate_model(model, "Random Forest")
 
     # ==================== XGBoost ====================
-    def tune_xgboost(self, n_particles: int = 20, iters: int = 30) -> Dict[str, float]:
+    def tune_xgboost(self, n_particles: int = 5, iters: int = 10) -> Dict[str, float]:
         """PSO optimization for XGBoost hyperparameters"""
-        self._prepare_data(self.selected_features)
 
         bounds = (
             np.array([0.01, 3, 0.1, 0.1, 0.1, 0]),  # min values
@@ -284,7 +302,6 @@ class ModelPipeline:
                     scale_pos_weight=np.sqrt(len(self.y_train)/self.y_train.sum()),
                     tree_method='hist',
                     eval_metric='aucpr',
-                    use_label_encoder=False,
                     random_state=42
                 )
 
@@ -307,7 +324,7 @@ class ModelPipeline:
         optimizer = GlobalBestPSO(
             n_particles=n_particles,
             dimensions=len(bounds[0]),
-            options={'c1': 0.5, 'c2': 0.3, 'w': 0.9},
+            options={'c1': 0.5, 'c2': 0.3, 'w': 0.9, 'early_stop': True, 'patience': 3},
             bounds=bounds
         )
 
@@ -345,7 +362,6 @@ class ModelPipeline:
             scale_pos_weight=np.sqrt(len(self.y_train)/self.y_train.sum()),
             tree_method='hist',
             eval_metric='aucpr',
-            use_label_encoder=False,
             random_state=42
         )
 
@@ -353,9 +369,8 @@ class ModelPipeline:
         return self._evaluate_model(model, "XGBoost")
 
     # ==================== LightGBM ====================
-    def tune_lightgbm(self, n_particles: int = 20, iters: int = 30) -> Dict[str, float]:
+    def tune_lightgbm(self, n_particles: int = 5, iters: int = 10) -> Dict[str, float]:
         """PSO optimization for LightGBM hyperparameters"""
-        self._prepare_data(self.selected_features)
 
         bounds = (
             np.array([0.01, 3, 0.1, 0.1, 0.1, 20]),  # min values
@@ -373,7 +388,7 @@ class ModelPipeline:
                     bagging_fraction=param_set[4],
                     bagging_freq=int(param_set[5]),
                     class_weight='balanced',
-                    boosting_type='goss',
+                    boosting_type='gbdt',
                     objective='binary',
                     random_state=42
                 )
@@ -397,7 +412,7 @@ class ModelPipeline:
         optimizer = GlobalBestPSO(
             n_particles=n_particles,
             dimensions=len(bounds[0]),
-            options={'c1': 0.5, 'c2': 0.3, 'w': 0.9},
+            options={'c1': 0.5, 'c2': 0.3, 'w': 0.9, 'early_stop': True, 'patience': 3},
             bounds=bounds
         )
 
@@ -433,7 +448,7 @@ class ModelPipeline:
             bagging_fraction=params['bagging_fraction'],
             bagging_freq=params['bagging_freq'],
             class_weight='balanced',
-            boosting_type='goss',
+            boosting_type='gbdt',
             objective='binary',
             random_state=42
         )
@@ -446,7 +461,8 @@ class ModelPipeline:
                          learning_rate: float = 0.001, dropout_rate: float = 0.2) -> Sequential:
         """Create a dense neural network architecture"""
         model = Sequential()
-        model.add(Dense(layers[0], input_dim=input_dim, activation='relu'))
+        model.add(Input((input_dim,)))
+        model.add(Dense(layers[0], activation='relu'))
         model.add(Dropout(dropout_rate))
 
         for units in layers[1:]:
@@ -462,9 +478,8 @@ class ModelPipeline:
         )
         return model
 
-    def tune_dense_nn(self, n_particles: int = 20, iters: int = 30) -> Dict[str, float]:
+    def tune_dense_nn(self, n_particles: int = 5, iters: int = 10) -> Dict[str, float]:
         """PSO optimization for Dense NN hyperparameters"""
-        self._prepare_data(self.selected_features)
 
         # Scale data for NN
         self.scaler = StandardScaler()
@@ -479,13 +494,13 @@ class ModelPipeline:
             scores = []
             for param_set in params:
                 model = KerasClassifier(
-                    build_fn=lambda: self._create_dense_nn(
+                    model=lambda: self._create_dense_nn(
                         input_dim=X_train_scaled.shape[1],
                         layers=(int(param_set[1]), int(param_set[2])),
                         learning_rate=param_set[0],
                         dropout_rate=param_set[4]
                     ),
-                    epochs=20,
+                    epochs=10,
                     batch_size=256,
                     verbose=0
                 )
@@ -509,7 +524,7 @@ class ModelPipeline:
         optimizer = GlobalBestPSO(
             n_particles=n_particles,
             dimensions=len(bounds[0]),
-            options={'c1': 0.5, 'c2': 0.3, 'w': 0.9},
+            options={'c1': 0.5, 'c2': 0.3, 'w': 0.9, 'early_stop': True, 'patience': 3},
             bounds=bounds
         )
 
@@ -540,7 +555,7 @@ class ModelPipeline:
         X_train_scaled = self.scaler.transform(self.X_train)
 
         model = KerasClassifier(
-            build_fn=lambda: self._create_dense_nn(
+            model=lambda: self._create_dense_nn(
                 input_dim=X_train_scaled.shape[1],
                 layers=(params['layer1'], params['layer2']),
                 learning_rate=params['learning_rate'],
@@ -553,129 +568,6 @@ class ModelPipeline:
 
         model.fit(X_train_scaled, self.y_train)
         return self._evaluate_model(model, "Dense Neural Network", is_nn=True)
-
-    # ==================== RNN ====================
-    def _reshape_for_rnn(self, X: np.ndarray) -> np.ndarray:
-        """Reshape data for RNN input (samples, timesteps, features)"""
-        # Assuming we can treat each feature as a timestep
-        return X.reshape((X.shape[0], 1, X.shape[1]))
-
-    def _create_rnn(self, input_shape: Tuple[int, int], units: int = 64,
-                    learning_rate: float = 0.001, dropout_rate: float = 0.2) -> Sequential:
-        """Create an RNN architecture"""
-        model = Sequential()
-        model.add(SimpleRNN(
-            units=units,
-            input_shape=input_shape,
-            activation='tanh',
-            return_sequences=False
-        ))
-        model.add(Dropout(dropout_rate))
-        model.add(Dense(1, activation='sigmoid'))
-
-        model.compile(
-            optimizer=Adam(learning_rate=learning_rate),
-            loss='binary_crossentropy',
-            metrics=['accuracy']
-        )
-        return model
-
-    def tune_rnn(self, n_particles: int = 15, iters: int = 20) -> Dict[str, float]:
-        """PSO optimization for RNN hyperparameters"""
-        self._prepare_data(self.selected_features)
-
-        # Scale and reshape data for RNN
-        self.scaler = MinMaxScaler()
-        X_train_scaled = self.scaler.fit_transform(self.X_train)
-        X_train_reshaped = self._reshape_for_rnn(X_train_scaled)
-
-        bounds = (
-            np.array([0.0001, 16, 0.1]),  # min values: learning_rate, units, dropout_rate
-            np.array([0.01, 128, 0.5])    # max values
-        )
-
-        def objective_function(params):
-            scores = []
-            for param_set in params:
-                model = KerasClassifier(
-                    build_fn=lambda: self._create_rnn(
-                        input_shape=(1, X_train_reshaped.shape[2]),
-                        units=int(param_set[1]),
-                        learning_rate=param_set[0],
-                        dropout_rate=param_set[2]
-                    ),
-                    epochs=20,
-                    batch_size=128,
-                    verbose=0
-                )
-
-                cv_scores = []
-                cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
-
-                for train_idx, val_idx in cv.split(X_train_reshaped, self.y_train):
-                    X_train_cv = X_train_reshaped[train_idx]
-                    X_val_cv = X_train_reshaped[val_idx]
-                    y_train_cv = self.y_train.iloc[train_idx]
-                    y_val_cv = self.y_train.iloc[val_idx]
-
-                    model.fit(X_train_cv, y_train_cv)
-                    y_proba = model.predict_proba(X_val_cv)[:, 1]
-                    score = roc_auc_score(y_val_cv, y_proba)
-                    cv_scores.append(score)
-
-                scores.append(-np.mean(cv_scores))
-
-            return np.array(scores)
-
-        optimizer = GlobalBestPSO(
-            n_particles=n_particles,
-            dimensions=len(bounds[0]),
-            options={'c1': 0.5, 'c2': 0.3, 'w': 0.9},
-            bounds=bounds
-        )
-
-        best_cost, best_params = optimizer.optimize(objective_function, iters=iters)
-
-        optimized_params = {
-            'learning_rate': best_params[0],
-            'units': int(best_params[1]),
-            'dropout_rate': best_params[2]
-        }
-
-        print("\nOptimized RNN Parameters:")
-        print(optimized_params)
-        print(f"Best ROC-AUC: {-best_cost:.4f}")
-
-        self.models['RNN']['params'] = optimized_params
-        return optimized_params
-
-    def train_rnn(self) -> Dict[str, Union[float, str]]:
-        """Train RNN with optimized parameters"""
-        if not self.models['RNN']['params']:
-            raise ValueError("RNN parameters not tuned. Call tune_rnn() first.")
-
-        params = self.models['RNN']['params']
-
-        # Scale and reshape data
-        X_train_scaled = self.scaler.transform(self.X_train)
-        X_test_scaled = self.scaler.transform(self.X_test)
-        X_train_reshaped = self._reshape_for_rnn(X_train_scaled)
-        X_test_reshaped = self._reshape_for_rnn(X_test_scaled)
-
-        model = KerasClassifier(
-            build_fn=lambda: self._create_rnn(
-                input_shape=(1, X_train_reshaped.shape[2]),
-                units=params['units'],
-                learning_rate=params['learning_rate'],
-                dropout_rate=params['dropout_rate']
-            ),
-            epochs=50,
-            batch_size=128,
-            verbose=0
-        )
-
-        model.fit(X_train_reshaped, self.y_train)
-        return self._evaluate_model(model, "RNN", is_nn=True, X_test=X_test_reshaped)
 
     # ==================== Evaluation ====================
     def _evaluate_model(self, model, model_name: str, is_nn: bool = False,
@@ -702,7 +594,7 @@ class ModelPipeline:
             metrics["feature_importance"] = model.feature_importances_
 
         # Visualization
-        fig, ax = plt.subplots(1, 2, figsize=(15, 5))
+        fig, ax = plt.subplots(1, 2, figsize=(12, 5))
         ConfusionMatrixDisplay.from_predictions(self.y_test, y_pred, ax=ax[0])
         ax[0].set_title(f"Confusion Matrix - {model_name}")
 
@@ -715,6 +607,8 @@ class ModelPipeline:
             ax[1].set_title(f"Top 10 Features - {model_name}")
         else:
             ax[1].axis('off')
+
+        fig.tight_layout()
 
         plt.show()
 
@@ -738,9 +632,6 @@ class ModelPipeline:
         # Perform feature selection if requested
         if selected_features is None:
             self.selected_features = list(range(self.X.shape[1]))
-
-        # Prepare data with selected features
-        self._prepare_data(self.selected_features)
 
         results = {}
 

@@ -4,7 +4,7 @@ from detection_pipeline import ModelPipeline
 if __name__ == "__main__":
     pipeline = ModelPipeline(
         data_path='encoded_fraud_data.parquet',
-        sample_frac=0.5
+        sample_frac=0.3
     )
 
     # Feature selection
@@ -19,7 +19,7 @@ if __name__ == "__main__":
             'RandomForest',
             'XGBoost',
             'LightGLM',
-            'DenseNN',
-            'RNN'
-        ]
+            'DenseNN'
+        ],
+        selected_features=features
     )
