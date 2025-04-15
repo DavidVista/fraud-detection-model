@@ -3,7 +3,7 @@ from detection_pipeline import ModelPipeline
 
 if __name__ == "__main__":
     pipeline = ModelPipeline(
-        data_path='encoded_fraud_data.parquet',
+        data_path='fraud_data.parquet',
         sample_frac=0.3
     )
 

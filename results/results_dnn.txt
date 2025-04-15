@@ -1,0 +1,24 @@
+2025-04-15 09:15:09,670 - pyswarms.single.global_best - INFO - Optimize for 10 iters with {'c1': 0.5, 'c2': 0.3, 'w': 0.9, 'early_stop': True, 'patience': 3}
+
+=== Processing DenseNN ===
+Tuning DenseNN hyperparameters...
+pyswarms.single.global_best: 100%|██████████|10/10, best_cost=-0.873
+2025-04-15 09:27:25,271 - pyswarms.single.global_best - INFO - Optimization finished | best cost: -0.8729454894106151, best pos: [5.60178584e-03 2.10971752e+02 1.44448134e+02 3.59488858e-01
+ 1.51780116e-01]
+
+Optimized Dense NN Parameters:
+{'learning_rate': np.float64(0.005601785837764509), 'layer1': 210, 'layer2': 144, 'dropout_rate': np.float64(0.15178011585806242)}
+Best ROC-AUC: 0.8729
+Training DenseNN with optimized parameters...
+DenseNN Results:
+ROC-AUC: 0.7548
+PR-AUC: 0.1599
+Classification Report:
+              precision    recall  f1-score   support
+
+         0.0       0.99      0.44      0.60    113866
+         1.0       0.05      0.85      0.10      4242
+
+    accuracy                           0.45    118108
+   macro avg       0.52      0.64      0.35    118108
+weighted avg       0.95      0.45      0.59    118108

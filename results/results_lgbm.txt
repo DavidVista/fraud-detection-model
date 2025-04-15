@@ -1,0 +1,23 @@
+2025-04-15 09:12:36,455 - pyswarms.single.global_best - INFO - Optimize for 10 iters with {'c1': 0.5, 'c2': 0.3, 'w': 0.9, 'early_stop': True, 'patience': 3}
+
+=== Processing LightGBM ===
+Tuning LightGBM hyperparameters...
+pyswarms.single.global_best: 100%|██████████|10/10, best_cost=-0.906
+2025-04-15 09:15:04,925 - pyswarms.single.global_best - INFO - Optimization finished | best cost: -0.9062353678506493, best pos: [ 0.21926592 24.22562921 37.99504906  0.42471319  0.98590256 29.87415142]
+
+Optimized LightGBM Parameters:
+{'learning_rate': np.float64(0.21926592164943762), 'num_leaves': 24, 'min_data_in_leaf': 37, 'feature_fraction': np.float64(0.4247131935700925), 'bagging_fraction': np.float64(0.9859025643025873), 'bagging_freq': 29}
+Best ROC-AUC: 0.9062
+...
+LightGBM Results:
+ROC-AUC: 0.9129
+PR-AUC: 0.5578
+Classification Report:
+              precision    recall  f1-score   support
+
+         0.0       0.99      0.86      0.92    113866
+         1.0       0.18      0.81      0.30      4242
+
+    accuracy                           0.86    118108
+   macro avg       0.59      0.84      0.61    118108
+weighted avg       0.96      0.86      0.90    118108
