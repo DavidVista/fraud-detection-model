@@ -2,7 +2,7 @@
 This project aims to detect fraud transactions by combining Nature-Inspired Computing (NIC) algorithms (Genetic Algorithms (GA) and Particle Swarm Optimization (PSO)) with traditional Machine Learning models (e.g., Random Forest, XGBoost, Neural Networks). Particularly, GA is used for feature selection as the number of attributes in the dataset is large, and not all features are significant for detection. The second optimization is the hyperparameter tuning using PSO. This step helps to find a suboptimal solution to maximize the performance of each model.
 
 # Checkpoint I
-During the first several weeks, we loaded the dataset and prepared data for further manipulation. Specifically, the dataset was loaded, and the tables were merged for further feature engineering. You can see the <a href="https://github.com/DavidVista/fraud-detection-model/blob/main/notebooks/01-EDA.ipynb">01_EDA</a> in the folder <a href="https://github.com/DavidVista/fraud-detection-model/tree/main/notebooks">notebooks</a> to follow the next steps that have been made:
+During the first several weeks, we loaded the dataset and prepared data for further manipulation. Specifically, the dataset was loaded, and the tables were merged for further feature engineering. You can see the <a href="https://github.com/DavidVista/fraud-detection-model/blob/main/notebooks/01_EDA.ipynb">01_EDA</a> in the folder <a href="https://github.com/DavidVista/fraud-detection-model/tree/main/notebooks">notebooks</a> to follow the next steps that have been made:
 - Imputing missing values;
 - Distribution analysis;
 - Removing redundant features;
